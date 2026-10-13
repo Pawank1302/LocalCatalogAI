@@ -34,7 +34,7 @@ internal object OnDeviceSegmenter {
                 session.run(mapOf(inputName to tensor)).use { result ->
                     @Suppress("UNCHECKED_CAST")
                     val mask = result[0].value as Array<Array<Array<FloatArray>>>
-                    predictions = mask[0][0][0]
+                    val rows = mask[0][0]\n                    predictions = FloatArray(inputSize * inputSize) { i ->\n                        rows[i / inputSize][i % inputSize]\n                    }
                 }
             }
         }
