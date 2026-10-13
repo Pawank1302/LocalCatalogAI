@@ -104,8 +104,9 @@ internal object CatalogProcessor {
         canvas.drawColor(Color.rgb(249, 249, 249))
         val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
         val cropped = cropToVisibleBounds(cutout)
-        drawCentered(canvas, cropped, paint, 800f)
-        return Result(output, "AI background removal complete, processed entirely on-device. Product centered with safe catalog padding. Check label and edges.")
+        val cleaned = cleanAlphaEdge(cropped)
+        drawCenteredWithShadow(canvas, cleaned, paint, 800f)
+        return Result(output, "AI background removal complete on-device. Product centered with safe padding, edge cleanup, and a subtle natural shadow. Original product colors and label pixels are preserved.")
     }
 
     fun process(original: Bitmap): Result {
@@ -193,6 +194,59 @@ internal object CatalogProcessor {
         val left = max(0, minX - margin); val top = max(0, minY - margin)
         val right = min(image.width - 1, maxX + margin); val bottom = min(image.height - 1, maxY + margin)
         return Bitmap.createBitmap(image, left, top, right - left + 1, bottom - top + 1)
+    }
+
+    private fun cleanAlphaEdge(image: Bitmap): Bitmap {
+        val w = image.width
+        val h = image.height
+        val src = IntArray(w * h)
+        image.getPixels(src, 0, w, 0, 0, w, h)
+        val out = src.copyOf()
+
+        // Refine only semi-transparent boundary pixels. RGB values are never changed.
+        for (y in 1 until h - 1) for (x in 1 until w - 1) {
+            val i = y * w + x
+            val a = Color.alpha(src[i])
+            if (a in 1..254) {
+                var alphaSum = 0
+                var opaqueNeighbors = 0
+                for (dy in -1..1) for (dx in -1..1) {
+                    val na = Color.alpha(src[(y + dy) * w + (x + dx)])
+                    alphaSum += na
+                    if (na >= 224) opaqueNeighbors++
+                }
+                val localAlpha = alphaSum / 9
+                val refined = when {
+                    opaqueNeighbors >= 6 -> max(a, localAlpha)
+                    opaqueNeighbors <= 1 -> min(a, localAlpha)
+                    else -> ((a * 3 + localAlpha) / 4)
+                }.coerceIn(0, 255)
+                out[i] = (src[i] and 0x00FFFFFF) or (refined shl 24)
+            }
+        }
+        return Bitmap.createBitmap(out, w, h, Bitmap.Config.ARGB_8888)
+    }
+
+    private fun drawCenteredWithShadow(canvas: Canvas, image: Bitmap, paint: Paint, maxSize: Float = 820f) {
+        val scale = min(maxSize / image.width, maxSize / image.height)
+        val width = image.width * scale
+        val height = image.height * scale
+        val left = (1024f - width) / 2
+        val top = (1024f - height) / 2
+        val dst = RectF(left, top, left + width, top + height)
+
+        // Shadow comes only from the cutout alpha silhouette, never from generated product content.
+        val alpha = image.extractAlpha()
+        val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
+            color = Color.argb(42, 0, 0, 0)
+            maskFilter = BlurMaskFilter(18f, BlurMaskFilter.Blur.NORMAL)
+        }
+        canvas.save()
+        canvas.translate(0f, 12f)
+        canvas.drawBitmap(alpha, null, dst, shadowPaint)
+        canvas.restore()
+        canvas.drawBitmap(image, null, dst, paint)
+        alpha.recycle()
     }
 
     private fun drawCentered(canvas: Canvas, image: Bitmap, paint: Paint, maxSize: Float = 820f) {
