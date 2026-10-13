@@ -103,8 +103,9 @@ internal object CatalogProcessor {
         val canvas = Canvas(output)
         canvas.drawColor(Color.rgb(249, 249, 249))
         val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-        drawCentered(canvas, cutout, paint)
-        return Result(output, "AI background removal complete, processed entirely on-device. Check label and edges.")
+        val cropped = cropToVisibleBounds(cutout)
+        drawCentered(canvas, cropped, paint, 800f)
+        return Result(output, "AI background removal complete, processed entirely on-device. Product centered with safe catalog padding. Check label and edges.")
     }
 
     fun process(original: Bitmap): Result {
@@ -174,8 +175,28 @@ internal object CatalogProcessor {
         return Result(output, "Orientation corrected. Background was too complex for safe automatic removal; original pixels preserved.")
     }
 
-    private fun drawCentered(canvas: Canvas, image: Bitmap, paint: Paint) {
-        val scale = min(820f / image.width, 820f / image.height)
+    private fun cropToVisibleBounds(image: Bitmap): Bitmap {
+        val pixels = IntArray(image.width * image.height)
+        image.getPixels(pixels, 0, image.width, 0, 0, image.width, image.height)
+        var minX = image.width
+        var minY = image.height
+        var maxX = -1
+        var maxY = -1
+        for (y in 0 until image.height) for (x in 0 until image.width) {
+            if (Color.alpha(pixels[y * image.width + x]) > 12) {
+                minX = min(minX, x); minY = min(minY, y)
+                maxX = max(maxX, x); maxY = max(maxY, y)
+            }
+        }
+        if (maxX < minX || maxY < minY) return image
+        val margin = max(4, (max(image.width, image.height) * 0.015f).roundToInt())
+        val left = max(0, minX - margin); val top = max(0, minY - margin)
+        val right = min(image.width - 1, maxX + margin); val bottom = min(image.height - 1, maxY + margin)
+        return Bitmap.createBitmap(image, left, top, right - left + 1, bottom - top + 1)
+    }
+
+    private fun drawCentered(canvas: Canvas, image: Bitmap, paint: Paint, maxSize: Float = 820f) {
+        val scale = min(maxSize / image.width, maxSize / image.height)
         val width = image.width * scale
         val height = image.height * scale
         val left = (1024f - width) / 2
