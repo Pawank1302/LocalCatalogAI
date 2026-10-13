@@ -1,8 +1,12 @@
 package com.pawank1302.localcatalogai
 
+import android.content.ContentValues
 import android.graphics.*
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.provider.MediaStore
 import android.widget.Button
 import android.widget.ImageView
 import android.widget.TextView
@@ -15,14 +19,18 @@ class MainActivity : AppCompatActivity() {
     private lateinit var originalPreview: ImageView
     private lateinit var catalogPreview: ImageView
     private lateinit var generateButton: Button
+    private lateinit var saveButton: Button
     private lateinit var status: TextView
     private var selectedUri: Uri? = null
+    private var generatedBitmap: Bitmap? = null
 
     private val pickImage = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         selectedUri = uri
         if (uri != null) {
             originalPreview.setImageURI(uri)
             catalogPreview.setImageDrawable(null)
+            generatedBitmap = null
+            saveButton.isEnabled = false
             generateButton.isEnabled = true
             status.text = "Photo loaded locally. Tap Generate Catalog Image."
         }
@@ -34,9 +42,11 @@ class MainActivity : AppCompatActivity() {
         originalPreview = findViewById(R.id.originalPreview)
         catalogPreview = findViewById(R.id.catalogPreview)
         generateButton = findViewById(R.id.generateCatalog)
+        saveButton = findViewById(R.id.saveImage)
         status = findViewById(R.id.status)
         findViewById<Button>(R.id.selectPhoto).setOnClickListener { pickImage.launch("image/*") }
         generateButton.setOnClickListener { generateCatalogPreview() }
+        saveButton.setOnClickListener { saveGeneratedImage() }
     }
 
     private fun generateCatalogPreview() {
@@ -54,7 +64,9 @@ class MainActivity : AppCompatActivity() {
                     CatalogProcessor.Result(fallback.bitmap, "AI unavailable or uncertain: ${segmentationError.message}. " + fallback.message)
                 }
                 runOnUiThread {
+                    generatedBitmap = result.bitmap
                     catalogPreview.setImageBitmap(result.bitmap)
+                    saveButton.isEnabled = true
                     status.text = result.message
                     generateButton.isEnabled = true
                 }
@@ -62,6 +74,48 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread {
                     status.text = "Processing failed: ${e.message ?: "unknown error"}"
                     generateButton.isEnabled = true
+                }
+            }
+        }.start()
+    }
+
+    private fun saveGeneratedImage() {
+        val bitmap = generatedBitmap ?: return
+        saveButton.isEnabled = false
+        Thread {
+            try {
+                val name = "catalog_" + System.currentTimeMillis() + ".png"
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    val values = ContentValues().apply {
+                        put(MediaStore.Images.Media.DISPLAY_NAME, name)
+                        put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+                        put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/LocalCatalogAI")
+                        put(MediaStore.Images.Media.IS_PENDING, 1)
+                    }
+                    val uri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                        ?: error("Unable to create image in gallery")
+                    contentResolver.openOutputStream(uri).use { stream ->
+                        requireNotNull(stream) { "Unable to open gallery output" }
+                        check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)) { "Unable to encode image" }
+                    }
+                    values.clear()
+                    values.put(MediaStore.Images.Media.IS_PENDING, 0)
+                    contentResolver.update(uri, values, null, null)
+                } else {
+                    val dir = getExternalFilesDir(Environment.DIRECTORY_PICTURES) ?: filesDir
+                    val file = java.io.File(dir, name)
+                    file.outputStream().use { stream ->
+                        check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)) { "Unable to encode image" }
+                    }
+                }
+                runOnUiThread {
+                    status.text = "Saved PNG to Pictures/LocalCatalogAI."
+                    saveButton.isEnabled = true
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    status.text = "Save failed: ${e.message ?: "unknown error"}"
+                    saveButton.isEnabled = true
                 }
             }
         }.start()
