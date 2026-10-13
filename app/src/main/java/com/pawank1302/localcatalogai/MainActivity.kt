@@ -46,7 +46,13 @@ class MainActivity : AppCompatActivity() {
         Thread {
             try {
                 val source = loadUpright(uri)
-                val result = CatalogProcessor.process(source)
+                val result = try {
+                    val cutout = OnDeviceSegmenter.cutOut(this, source)
+                    CatalogProcessor.composeCutout(cutout)
+                } catch (segmentationError: Exception) {
+                    val fallback = CatalogProcessor.process(source)
+                    CatalogProcessor.Result(fallback.bitmap, "AI unavailable or uncertain: ${segmentationError.message}. " + fallback.message)
+                }
                 runOnUiThread {
                     catalogPreview.setImageBitmap(result.bitmap)
                     status.text = result.message
@@ -91,6 +97,15 @@ class MainActivity : AppCompatActivity() {
  */
 internal object CatalogProcessor {
     data class Result(val bitmap: Bitmap, val message: String)
+
+    fun composeCutout(cutout: Bitmap): Result {
+        val output = Bitmap.createBitmap(1024, 1024, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(output)
+        canvas.drawColor(Color.rgb(249, 249, 249))
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+        drawCentered(canvas, cutout, paint)
+        return Result(output, "AI background removal complete, processed entirely on-device. Check label and edges.")
+    }
 
     fun process(original: Bitmap): Result {
         val maxSide = 1200f
