@@ -46,7 +46,7 @@ internal object OnDeviceSegmenter {
             Color.argb(a, 255, 255, 255)
         }
         val mask = Bitmap.createBitmap(320, 320, Bitmap.Config.ARGB_8888)
-        mask.setPixels(alphaPixels, 0, 320, 0, 0, 320)
+        mask.setPixels(alphaPixels, 0, 320, 0, 0, 320, 320)
         val scaledMask = Bitmap.createScaledBitmap(mask, source.width, source.height, true)
         val sourcePixels = IntArray(source.width * source.height)
         val maskPixels = IntArray(sourcePixels.size)
