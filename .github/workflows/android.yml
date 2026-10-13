@@ -15,6 +15,11 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+      - name: Download verified on-device AI model
+        run: |
+          mkdir -p app/src/main/assets
+          curl -fL --retry 3 -o app/src/main/assets/u2netp.onnx https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2netp.onnx
+          echo '8e83ca70e441ab06c318d82300c84806  app/src/main/assets/u2netp.onnx' | md5sum -c -
       - name: Build debug APK
         run: gradle assembleDebug
       - uses: actions/upload-artifact@v4
